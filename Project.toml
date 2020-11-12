@@ -1,0 +1,13 @@
+name = "WagnerModel"
+uuid = "1d7a245b-62d6-4e0d-9535-4e5d170b83e8"
+authors = ["Harrison Oatman <hroatman@college.harvard.edu> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
