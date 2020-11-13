@@ -2,5 +2,5 @@ using WagnerModel
 using Test
 
 @testset "WagnerModel.jl" begin
-    # Write your tests here.
+    @test my_f(2,4) == 8
 end
