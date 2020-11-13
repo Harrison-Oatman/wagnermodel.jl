@@ -1,8 +1,9 @@
 module WagnerModel
 
-include("extrafile.jl")
+include("simFunctions.jl")
 
-export my_f
+export gen_config
+export assess_stability
 # Write your package code here.
 
 end
