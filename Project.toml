@@ -8,6 +8,7 @@ ConfParser = "88353bc9-fd38-507d-a820-d3b43837d6b9"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [compat]
+ConfParser = "0.1"
 julia = "1"
 
 [extras]
