@@ -1,0 +1,20 @@
+# Decisions
+- How should I structure functions, which will, in most circumstances, take
+several parameters directly from the config? Right now, the functions do not take
+a config as an option, and instead require each parameter to manually input. I
+could make multiple methods for these functions, so that they can take a config,
+and I do not believe that this would lead to a slippery slope of too many methods. 
+
+# Large Changes
+
+
+# Small Changes
+
+- potentially optimize mutate_genotype!() by finding all potential locations,
+and sampling from those, rather than drawing random samples until a valid location
+is found. Viability of this optimization depends on findall speed, but would likely
+be effective, and would avoid randomness in runtime.
+
+- a "change" mutation currently inverts the weight, rather than drawing a new weight
+a potential improvement would be to simply draw a new interaction from the sample
+iff the interaction is not binary or to have the change property be a config
