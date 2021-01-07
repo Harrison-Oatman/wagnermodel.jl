@@ -30,6 +30,7 @@ function generate_config(conpath::String="none")
     sim_dict["mu_change"] = parse(Float64,retrieve(conf, "CHANGE_MUTATION_RATE"))
     sim_dict["treatment"] = retrieve(conf,"TREATMENT")
     sim_dict["max_convergence_time"] = parse(Int64,retrieve(conf, "MAX_CONVERGENCE_TIME"))
+    sim_dict["activation"] = parse(Float64,retrieve(conf, "INIT_COND_PROB_ACTIVATED"))
 
     sim_dict["experiment_type"] = retrieve(conf,"EXPERIMENT_TYPE")
     sim_dict["selection_method"] = retrieve(conf,"SELECTION_METHOD")
@@ -48,7 +49,7 @@ function generate_config(conpath::String="none")
     return sim_dict
 end
 
-function assess_stability(test_grn::Array{Float64,2},test_S_0::Array{Float64,1},max_convergence_time::Int)
+function assess_stability(test_grn::Array{AbstractFloat,2},test_S_0::Array{AbstractFloat,1},max_convergence_time::Int)
     """
     Goal: This function measures whether a given GRN results in a stable final
     gene state vector for a given initial gene state vector.
@@ -63,7 +64,7 @@ function assess_stability(test_grn::Array{Float64,2},test_S_0::Array{Float64,1},
         3. the number of steps it took to reach a stable state
     """
 
-    function filter_function(x::Float64)
+    function filter_function(x::AbstractFloat)
         """
         Goal: This function normalizes the value of a gene's state to either
         0.0 or 1.0.
@@ -116,14 +117,20 @@ function generate_genotype(genes::Int,interaction_type::String,
     return Genotype(grn, Array{Mutation,1}())
 end
 
-function generate_condition(genes::Int,connectivity::Float64,deterministic::Bool=false)
+function generate_condition(genes::Int,connectivity::AbstractFloat,deterministic::Bool=false)
+    """
+    NEED to rename
+    generates an initial or final condition, based on the genome size and
+    connectivity given. If deterministic, the number of 1s and 0s uses the
+    floor of genes*connectivity
+    """
     if deterministic
         n = floor(genes*connectivity)
         condition = [0.0 for _ in 1:(genes-n)]
         push!(condition,[1.0 for _ in 1:n]...)
         return sample(condition,10,replace=false)
     else
-        return sample([0.0,1.0],Weights([connectivity,1-connectivity]))
+        return sample([0.0,1.0],Weights([connectivity,1-connectivity]),10)
     end
 end
 
@@ -143,7 +150,10 @@ end
 #     return Genotype(grn, Array{Mutation,1}())
 # end
 
-function hamming_distance(A::Array{Float64,1},B::Array{Float64,1})
+function hamming_distance(A::Array{AbstractFloat,1},B::Array{AbstractFloat,1})
+    """
+    returns the hamming distance of two vectors
+    """
     distance = 0.0
     for i in 1:length(A)
         if A[i] != B[i]
@@ -153,7 +163,7 @@ function hamming_distance(A::Array{Float64,1},B::Array{Float64,1})
     return distance
 end
 
-function gen_grn_from_states(S_0::Array{Float64,1},target_eq::Array{Float64,1},
+function gen_grn_from_states(S_0::Array{AbstractFloat,1},target_eq::Array{AbstractFloat,1},
     interaction_type::String,ancestor_connectivity::Real,max_convergence_time::Int)
     """
     generates a genotype given an initial state, that converges to the target state
@@ -208,7 +218,7 @@ function gen_grn_from_states(S_0::Array{Float64,1},target_eq::Array{Float64,1},
     return grn
 end
 
-function simple_random_mutate(oldgrn::Array{Float64,2},mutation_probs::Array{Float64,1},
+function simple_random_mutate(oldgrn::Array{AbstractFloat,2},mutation_probs::Array{AbstractFloat,1},
         interaction_type::String,mutations::Int)
     """
     finds a new mutation without altering the old grn, and without updating the
@@ -227,9 +237,12 @@ function simple_random_mutate(oldgrn::Array{Float64,2},mutation_probs::Array{Flo
             mutation_type = sample(["change","gain","loss"],Weights(mutation_probs))
 
             if mutation_type == "change" && grn[loc] != 0.0
-                # currently only negates the interaction, for nonbinary interaction
-                # should this be a reroll?
-                newval = grn[loc]*-1
+
+                if interaction_type == "binary"
+                    newval = grn[loc]*-1
+                else
+                    newval =  rand(interaction_dict[interaction_type])
+                end
             elseif mutation_type == "gain" && grn[loc] == 0.0
                 newval = rand(interaction_dict[interaction_type])
             elseif mutation_type == "loss" && grn[loc] != 0.0
@@ -260,9 +273,12 @@ function mutate_genotype!(genotype::Genotype,mutation_type::String,interaction_t
         if mutation_type == "loss" && grn[loc] != 0.0
             newval = 0
         elseif mutation_type == "change" && grn[loc] != 0.0
-            # currently only negates the interaction, for nonbinary interaction
-            # should this be a reroll?
-            newval = grn[loc]*-1
+
+            if interaction_type == "binary"
+                newval = grn[loc]*-1
+            else
+                newval =  rand(interaction_dict[interaction_type])
+            end
         elseif mutation_type == "gain" && grn[loc] == 0.0
             newval = rand(interaction_dict[interaction_type])
         else
@@ -278,6 +294,9 @@ function mutate_genotype!(genotype::Genotype,mutation_type::String,interaction_t
 end
 
 function pi(X, duplicates)
+    """
+    Produces a vector with the given indices duplicated
+    """
     output = Array{Float64,1}()
     for i in 1:length(X)
         push!(output, X[i])
@@ -291,12 +310,12 @@ end
 function pi_mat(A, duplicates)
     new_A = []
     for i in 1:length(A[1,:])
-        push!(new_A,pi(A[i,:],duplicates))
+        push!(new_A,transpose(pi(A[i,:],duplicates)))
         if i in duplicates
-            push!(new_A,pi(A[i,:],duplicates))
+            push!(new_A,transpose(pi(A[i,:],duplicates)))
         end
     end
-    return hcat(new_A...)
+    return vcat(new_A...)
 end
 
 # function mutate_genotype!(genotype::Genotype,mutation_type::String,sample_distribution::Sampleable)
@@ -330,7 +349,7 @@ end
 #     return genotype
 # end
 
-function rand_mutate!(genotype::Genotype,config::Dict)
+function binom_mutate!(genotype::Genotype,config::Dict)
     """
     determines the number of mutations for an individual using the given
     probabilities of interaction loss, gain, and change
@@ -354,39 +373,98 @@ function rand_mutate!(genotype::Genotype,config::Dict)
     return gains + losses + changes
 end
 
-function generate_population(config::Dict,init_conditions::Array{Float64,1},single_ancestor=true)
+function poisson_mutate!(genotype::Genotype,config::Dict)
+    """
+    Mutates using a poisson distribution, rather than binomial
+    """
+
+    gains = rand(Poisson(config["mu_gain"]))
+    losses = rand(Poisson(config["mu_loss"]))
+    changes = rand(Poisson(config["mu_change"]))
+
+    for i in 1:gains
+        mutate_genotype!(genotype,"gain",config["interaction_type"])
+    end
+    for i in 1:losses
+        mutate_genotype!(genotype,"loss",config["interaction_type"])
+    end
+    for i in 1:changes
+        mutate_genotype!(genotype,"change",config["interaction_type"])
+    end
+    return gains + losses + changes
+end
+
+function generate_population(population_size,genes,interaction_type,
+        ancestor_connectivity,init_conditions::Array{Float64,1},
+        multiplicities::Array{Int,1})
     """
     Generates a population given the specifications of the config file.
     Each member of the population will be viable under the init_conditions specified
+
+    Improvement: take in list of clonal sizes
+    TOTAL REWORK NECESSARY
+    Assess stability needs fix (max convergence time)
     """
-    population = Population(Array{Tuple{Genotype,Int},1}())
-    popsize = config["population_size"]
-    unique_individuals = single_ancestor ? 1 : popsize
-    for individual in 1:unique_individuals
+    individuals = []
+    popsize = population_size
+    for individual in 1:length(multiplicities)
         viable = false
         genotype = nothing
         while viable == false
-            genotype = generate_genotype(config["genes"],config["interaction_type"],
-                        config["ancestor_connectivity"])
-            viable = assess_stability(genotype.grn,init_conditions,config)[1]
+            genotype = generate_genotype(genes,interaction_type,ancestor_connectivity)
+            viable = assess_stability(genotype.grn,init_conditions,100)[1]
         end
-        push!(population.individuals,(genotype,single_ancestor ? popsize : 1))
+        for _ in 1:multiplicities[individual]
+            push!(individuals,deepcopy(genotype))
+        end
     end
     return population
 end
 
+function generate_population(config,init_conditions::Array{AbstractFloat,1},
+        multiplicities::Array{Int,1})
+    """
+    Generates a population given the specifications of the config file.
+    Each member of the population will be viable under the init_conditions specified
+
+    Improvement: take in list of clonal sizes
+    TOTAL REWORK NECESSARY
+    """
+    individuals = []
+    popsize = config["population_size"]
+    for individual in 1:length(multiplicities)
+        viable = false
+        genotype = nothing
+        while viable == false
+            genotype = generate_genotype(config["genes"],config["interaction_type"],
+                config["ancestor_connectivity"])
+            viable = assess_stability(genotype.grn,init_conditions,
+                config["max_convergence_time"])[1]
+        end
+        for _ in 1:multiplicities[individual]
+            push!(individuals,deepcopy(genotype))
+        end
+    end
+    return individuals
+end
+
 function wagner_experiment(genes,k_values,trials,subtrials)
-    connectivity = 1.0
+    """
+    framework for performing the experiment in Wagner's 1994 paper, which
+    introduced the model
+    """
+    activation = 0.5
+    connectivity = 1
     S_0_list = []
     S_eq_list = []
     grn_list = []
     for i in 1:trials
-        push!(S_0_list,generate_condition(genes,connectivity,true))
-        push!(S_eq_list,generate_condition(genes,connectivity,true))
+        push!(S_0_list,generate_condition(genes,activation,false))
+        push!(S_eq_list,generate_condition(genes,activation,false))
         push!(grn_list,gen_grn_from_states(S_0_list[i],S_eq_list[i],"binary",connectivity,100))
     end
 
-    similar = zeros(length(k_values))
+    different = zeros(length(k_values))
     stables = zeros(length(k_values))
     for (i,k) in enumerate(k_values)
         for trial in 1:trials
@@ -399,16 +477,47 @@ function wagner_experiment(genes,k_values,trials,subtrials)
                 if stable
                     stables[i] += 1.0
                     # println(new_S_eq,pi(S_eq_list[trial],duplicates))
-                    if new_S_eq == pi(S_eq_list[trial],duplicates)
-                        similar[i] += 1.0
+                    if new_S_eq != pi(S_eq_list[trial],duplicates)
+                        different[i] += 1.0
                     end
+                else
+                    print(k)
                 end
             end
         end
-        similar[i] = 1 - similar[i]/stables[i]
+        different[i] = different[i]/stables[i]
     end
     print(stables)
-    return similar
+    return different,S_0_list,S_eq_list,grn_list
+end
+
+function epistasis_experiment(config, generations)
+    population_size = 500
+    S_0 = generate_condition(config["genes"], config["activation"], true)
+    population = generate_population(config,S_0,[population_size])
+    for generation in 1:generations
+        new_population = []
+        for individual in 1:population_size
+            individual_found = false
+            new_individual = nothing
+            while individual_found == false
+                parent = sample(1:population_size)
+                new_individual = deepcopy(population[parent])
+                mutations = poisson_mutate!(new_individual,config)
+                if mutations == 0
+                    individual_found = true
+                elseif assess_stability(new_individual.grn,S_0,config["max_convergence_time"])[1]
+                    println("here!")
+                    individual_found = true
+                else
+                    println("here2")
+                end
+            end
+            push!(new_population,new_individual)
+        end
+        population = new_population
+    end
+    return population
 end
 
 # code for testing
@@ -417,14 +526,16 @@ config = generate_config()
 S_0 = generate_condition(10,0.5,true)
 S_eq = generate_condition(10,0.5,true)
 grn = gen_grn_from_states(S_0,S_eq,config["interaction_type"], config["ancestor_connectivity"],20)
-# grn = generate_genotype(config["genes"],config["interaction_type"],
-#     config["ancestor_connectivity"])
+grn2 = generate_genotype(config["genes"],config["interaction_type"],
+    config["ancestor_connectivity"])
 # init_cond = rand([-1.0,1.0],config["genes"])
 # oldgrn = deepcopy(grn)
-# rand_mutate!(grn, config)
+poisson_mutate!(grn2, config)
 # population = generate_population(config,init_cond,false)
-m =  pi_mat(grn,[1,2,3])
-
-
-results = wagner_experiment(10,[0,1,2,3,4,5,6,7,8,9,10],100,100)
+# m =  pi_mat(grn,[1,2,3])
+#
+#
+results,S_0_list,S_eq_list,grn_list = wagner_experiment(10,[0,1,2,3,4,5,6,7,8,9,10],100,100)
 plot([0,1,2,3,4,5,6,7,8,9,10],results)
+
+# population = epistasis_experiment(config, 100)
